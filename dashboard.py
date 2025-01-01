@@ -12,8 +12,24 @@ import re
 
 def parse_whatsapp_chat(content):
     """Parse WhatsApp chat content and return a DataFrame."""
-    # Regular expression for WhatsApp message format
-    pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\s(?:AM|PM)?) - (.*?): (.*)'
+    # Regular expressions for different WhatsApp message formats
+    patterns = [
+        # Format: 12/31/23, 11:59 PM - Name: Message
+        r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s(?:AM|PM))\s-\s(.*?):\s(.*)',
+        # Format: [31/12/23, 23:59:59] Name: Message
+        r'\[(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*)',
+        # Format: [31/12/2023 23:59:59] Name: Message
+        r'\[(\d{1,2}/\d{1,2}/\d{4}\s\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*)',
+        # Format: 31/12/23, 23:59 - Name: Message
+        r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2})\s-\s(.*?):\s(.*)'
+    ]
+    
+    date_formats = [
+        '%m/%d/%y, %I:%M %p',  # 12/31/23, 11:59 PM
+        '%d/%m/%y, %H:%M:%S',  # 31/12/23, 23:59:59
+        '%d/%m/%Y %H:%M:%S',   # 31/12/2023 23:59:59
+        '%d/%m/%y, %H:%M'      # 31/12/23, 23:59
+    ]
     
     messages = []
     current_date = None
@@ -21,30 +37,32 @@ def parse_whatsapp_chat(content):
     current_message = None
     
     for line in content.split('\n'):
-        match = re.match(pattern, line)
-        if match:
-            if current_message:
-                messages.append({
-                    'timestamp': current_date,
-                    'sender': current_sender,
-                    'message': current_message
-                })
+        line = line.strip()
+        if not line:
+            continue
             
-            date_str, sender, message = match.groups()
-            try:
-                # Try to parse the date with seconds
-                current_date = datetime.strptime(date_str, '%m/%d/%y, %I:%M:%S %p')
-            except ValueError:
+        matched = False
+        for pattern, date_format in zip(patterns, date_formats):
+            match = re.match(pattern, line)
+            if match:
+                if current_message:
+                    messages.append({
+                        'timestamp': current_date,
+                        'sender': current_sender,
+                        'message': current_message.strip()
+                    })
+                
+                date_str, sender, message = match.groups()
                 try:
-                    # Try without seconds
-                    current_date = datetime.strptime(date_str, '%m/%d/%y, %I:%M %p')
+                    current_date = datetime.strptime(date_str, date_format)
+                    current_sender = sender.strip()
+                    current_message = message.strip()
+                    matched = True
+                    break
                 except ValueError:
-                    # Skip if date parsing fails
                     continue
-            
-            current_sender = sender
-            current_message = message
-        elif current_message:
+        
+        if not matched and current_message is not None:
             # Append multi-line messages
             current_message += '\n' + line
     
@@ -53,18 +71,21 @@ def parse_whatsapp_chat(content):
         messages.append({
             'timestamp': current_date,
             'sender': current_sender,
-            'message': current_message
+            'message': current_message.strip()
         })
     
     # Create DataFrame
     df = pd.DataFrame(messages)
     
-    if not df.empty:
-        # Sort by timestamp
-        df = df.sort_values('timestamp')
+    if df.empty:
+        return None
         
-        # Reset index
-        df = df.reset_index(drop=True)
+    # Sort by timestamp
+    df = df.sort_values('timestamp')
+    df = df.reset_index(drop=True)
+    
+    # Add message length
+    df['message_length'] = df['message'].str.len()
     
     return df
 
@@ -86,7 +107,6 @@ def calculate_conversation_metrics(df):
     avg_response_time = df_sorted['time_diff'].mean()
     
     # Message length patterns
-    df['message_length'] = df['message'].str.len()
     avg_message_length = df['message_length'].mean()
     
     # Most active hours
