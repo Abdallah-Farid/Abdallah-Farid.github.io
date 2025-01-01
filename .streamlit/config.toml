@@ -1,5 +1,4 @@
 [server]
-baseUrlPath = "Abdallah-Farid.github.io"
 enableCORS = false
 enableXsrfProtection = false
 
