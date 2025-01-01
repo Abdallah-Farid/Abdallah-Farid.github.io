@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy Streamlit app to GitHub Pages
 
 on:
   push:
@@ -21,19 +21,16 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install streamlit-static-render
         
-    - name: Build and Deploy
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Build static site
       run: |
-        streamlit run dashboard.py &
-        sleep 5
-        mkdir public
-        wget -r -k -p -E -l 7 http://localhost:8501/
-        mv localhost:8501/* public/
+        mkdir -p build
+        python -m streamlit_static_render dashboard.py ./build
         
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./public
+        publish_dir: ./build
+        force_orphan: true
