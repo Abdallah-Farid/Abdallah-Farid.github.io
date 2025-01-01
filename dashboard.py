@@ -12,17 +12,25 @@ import re
 
 def parse_whatsapp_chat(content):
     """Parse WhatsApp chat content and return a DataFrame."""
-    # Regular expressions for different WhatsApp message formats
-    patterns = [
-        # Format: 12/31/23, 11:59 PM - Name: Message
-        r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s(?:AM|PM))\s-\s(.*?):\s(.*)',
-        # Format: [31/12/23, 23:59:59] Name: Message
-        r'\[(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*)',
-        # Format: [31/12/2023 23:59:59] Name: Message
-        r'\[(\d{1,2}/\d{1,2}/\d{4}\s\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*?):\s(.*)',
-        # Format: 31/12/23, 23:59 - Name: Message
-        r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2})\s-\s(.*?):\s(.*)'
-    ]
+    # Regular expressions for different message types
+    patterns = {
+        'regular_message': [
+            # Format: 12/31/23, 11:59 PM - Name: Message
+            r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s(?:AM|PM))\s-\s([^:]+):\s(.*)',
+            # Format: [31/12/23, 23:59:59] Name: Message
+            r'\[(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?)\]\s([^:]+):\s(.*)',
+            # Format: 31/12/23, 23:59 - Name: Message
+            r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2})\s-\s([^:]+):\s(.*)'
+        ],
+        'system_message': [
+            # Format: 12/31/23, 11:59 PM - Name joined using this group's invite link
+            r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s(?:AM|PM))\s-\s([^:]+)\s(joined.*)',
+            # Format: 12/31/23, 11:59 PM - ~ Name changed the group description
+            r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s(?:AM|PM))\s-\s~\s([^:]+)\s(changed.*)',
+            # Format: 12/31/23, 11:59 PM - Name added Name
+            r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s(?:AM|PM))\s-\s([^:]+)\s(added.*)'
+        ]
+    }
     
     date_formats = [
         '%m/%d/%y, %I:%M %p',  # 12/31/23, 11:59 PM
@@ -35,6 +43,7 @@ def parse_whatsapp_chat(content):
     current_date = None
     current_sender = None
     current_message = None
+    current_type = None
     
     for line in content.split('\n'):
         line = line.strip()
@@ -42,28 +51,62 @@ def parse_whatsapp_chat(content):
             continue
             
         matched = False
-        for pattern, date_format in zip(patterns, date_formats):
+        
+        # Try regular message patterns first
+        for pattern in patterns['regular_message']:
             match = re.match(pattern, line)
             if match:
                 if current_message:
                     messages.append({
                         'timestamp': current_date,
                         'sender': current_sender,
-                        'message': current_message.strip()
+                        'message': current_message.strip(),
+                        'message_type': current_type
                     })
                 
                 date_str, sender, message = match.groups()
-                try:
-                    current_date = datetime.strptime(date_str, date_format)
-                    current_sender = sender.strip()
-                    current_message = message.strip()
-                    matched = True
+                for date_format in date_formats:
+                    try:
+                        current_date = datetime.strptime(date_str, date_format)
+                        current_sender = sender.strip()
+                        current_message = message.strip()
+                        current_type = 'message'
+                        matched = True
+                        break
+                    except ValueError:
+                        continue
+                if matched:
                     break
-                except ValueError:
-                    continue
         
+        # If not a regular message, try system message patterns
+        if not matched:
+            for pattern in patterns['system_message']:
+                match = re.match(pattern, line)
+                if match:
+                    if current_message:
+                        messages.append({
+                            'timestamp': current_date,
+                            'sender': current_sender,
+                            'message': current_message.strip(),
+                            'message_type': current_type
+                        })
+                    
+                    date_str, sender, message = match.groups()
+                    for date_format in date_formats:
+                        try:
+                            current_date = datetime.strptime(date_str, date_format)
+                            current_sender = sender.strip()
+                            current_message = message.strip()
+                            current_type = 'system'
+                            matched = True
+                            break
+                        except ValueError:
+                            continue
+                    if matched:
+                        break
+        
+        # If still not matched and we have a current message, append as continuation
         if not matched and current_message is not None:
-            # Append multi-line messages
             current_message += '\n' + line
     
     # Add the last message
@@ -71,7 +114,8 @@ def parse_whatsapp_chat(content):
         messages.append({
             'timestamp': current_date,
             'sender': current_sender,
-            'message': current_message.strip()
+            'message': current_message.strip(),
+            'message_type': current_type
         })
     
     # Create DataFrame
