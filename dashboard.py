@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from pathlib import Path
 import numpy as np
 from collections import Counter
 import emoji
@@ -9,15 +8,69 @@ import humanize
 from datetime import datetime
 import os
 import sys
+import re
 
-# Import local modules
-try:
-    from scripts.whatsapp_parser import parse_whatsapp_chat, get_latest_messages
-except ImportError:
-    # Add the project root to Python path
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(project_root)
-    from scripts.whatsapp_parser import parse_whatsapp_chat, get_latest_messages
+def parse_whatsapp_chat(content):
+    """Parse WhatsApp chat content and return a DataFrame."""
+    # Regular expression for WhatsApp message format
+    pattern = r'(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}(?::\d{2})?\s(?:AM|PM)?) - (.*?): (.*)'
+    
+    messages = []
+    current_date = None
+    current_sender = None
+    current_message = None
+    
+    for line in content.split('\n'):
+        match = re.match(pattern, line)
+        if match:
+            if current_message:
+                messages.append({
+                    'timestamp': current_date,
+                    'sender': current_sender,
+                    'message': current_message
+                })
+            
+            date_str, sender, message = match.groups()
+            try:
+                # Try to parse the date with seconds
+                current_date = datetime.strptime(date_str, '%m/%d/%y, %I:%M:%S %p')
+            except ValueError:
+                try:
+                    # Try without seconds
+                    current_date = datetime.strptime(date_str, '%m/%d/%y, %I:%M %p')
+                except ValueError:
+                    # Skip if date parsing fails
+                    continue
+            
+            current_sender = sender
+            current_message = message
+        elif current_message:
+            # Append multi-line messages
+            current_message += '\n' + line
+    
+    # Add the last message
+    if current_message:
+        messages.append({
+            'timestamp': current_date,
+            'sender': current_sender,
+            'message': current_message
+        })
+    
+    # Create DataFrame
+    df = pd.DataFrame(messages)
+    
+    if not df.empty:
+        # Sort by timestamp
+        df = df.sort_values('timestamp')
+        
+        # Reset index
+        df = df.reset_index(drop=True)
+    
+    return df
+
+def get_latest_messages(df, n=5):
+    """Get the n most recent messages."""
+    return df.tail(n)
 
 def format_time_ago(timestamp):
     """Format timestamp as time ago (e.g., '2 hours ago')."""
