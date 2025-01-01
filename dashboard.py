@@ -1,25 +1,23 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import sys
 from pathlib import Path
-import tempfile
-import os
-from wordcloud import WordCloud
-import arabic_reshaper
-from bidi.algorithm import get_display
 import numpy as np
 from collections import Counter
 import emoji
 import humanize
+from datetime import datetime
+import os
+import sys
 
-# Add the project root to Python path
-project_root = Path(__file__).parent
-sys.path.append(str(project_root))
-
-from scripts.whatsapp_parser import parse_whatsapp_chat, get_latest_messages
+# Import local modules
+try:
+    from scripts.whatsapp_parser import parse_whatsapp_chat, get_latest_messages
+except ImportError:
+    # Add the project root to Python path
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    sys.path.append(project_root)
+    from scripts.whatsapp_parser import parse_whatsapp_chat, get_latest_messages
 
 def format_time_ago(timestamp):
     """Format timestamp as time ago (e.g., '2 hours ago')."""
@@ -44,10 +42,10 @@ def calculate_conversation_metrics(df):
     # Most active days
     peak_days = df['timestamp'].dt.day_name().value_counts().nlargest(3)
     
-    # Conversation starters
+    # Early birds (5 AM - 11 AM)
     morning_starters = df[df['timestamp'].dt.hour.between(5, 11)]['sender'].value_counts().nlargest(3)
     
-    # Night owls
+    # Night owls (10 PM - 5 AM)
     night_owls = df[df['timestamp'].dt.hour.between(22, 5)]['sender'].value_counts().nlargest(3)
     
     return {
@@ -87,278 +85,102 @@ def main():
     
     uploaded_file = st.file_uploader("Upload your WhatsApp chat export (.txt file)", type="txt")
     
-    if uploaded_file:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            temp_path = tmp_file.name
-            
+    if uploaded_file is not None:
         try:
-            # Parse chat file
-            df, system_df = parse_whatsapp_chat(temp_path)
-            os.unlink(temp_path)
+            # Read and decode the file content
+            content = uploaded_file.read().decode('utf-8')
             
-            # Get system events
-            total_joins = len(system_df[system_df['event'].str.contains('joined', case=False, na=False)])
-            total_leaves = len(system_df[system_df['event'].str.contains('left', case=False, na=False)])
+            # Parse the chat content
+            df = parse_whatsapp_chat(content)
             
-            # Calculate metrics
-            total_messages = len(df)
-            total_participants = df['sender'].nunique()
-            avg_daily = df.groupby(df['timestamp'].dt.date).size().mean()
-            
-            # Calculate advanced metrics
-            metrics = calculate_conversation_metrics(df)
-            
-            # Display key metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.markdown(f"""
-                    <div class="stat-card">
-                        <h3>{total_messages:,}</h3>
-                        <p>Total Messages</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"""
-                    <div class="stat-card">
-                        <h3>{int(avg_daily)}</h3>
-                        <p>Avg. Daily Messages</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f"""
-                    <div class="stat-card">
-                        <h3>{metrics['avg_message_length']:.0f}</h3>
-                        <p>Avg. Message Length</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                response_time = metrics['avg_response_time'].total_seconds() / 60
-                st.markdown(f"""
-                    <div class="stat-card">
-                        <h3>{response_time:.1f}m</h3>
-                        <p>Avg. Response Time</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            # Create tabs for different analyses
-            tab1, tab2, tab3 = st.tabs(["📊 Activity", "🎯 Engagement", "🔍 Content"])
-            
-            with tab1:
-                # Message Timeline
-                daily_msgs = df.groupby(df['timestamp'].dt.date).size().reset_index()
-                daily_msgs.columns = ['date', 'messages']
+            if df is not None and not df.empty:
+                # Calculate metrics
+                metrics = calculate_conversation_metrics(df)
                 
-                fig_timeline = px.line(
-                    daily_msgs,
-                    x='date',
-                    y='messages',
-                    title="Message Volume Over Time",
-                    labels={'date': 'Date', 'messages': 'Number of Messages'}
+                # Display basic stats
+                st.header("Chat Overview")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total Messages", len(df))
+                with col2:
+                    st.metric("Participants", df['sender'].nunique())
+                with col3:
+                    st.metric("Time Span", f"{(df['timestamp'].max() - df['timestamp'].min()).days} days")
+                
+                # Activity Analysis
+                st.header("Activity Analysis")
+                
+                # Message Volume Over Time
+                st.subheader("Message Volume Over Time")
+                daily_messages = df.groupby(df['timestamp'].dt.date).size().reset_index()
+                daily_messages.columns = ['date', 'messages']
+                fig = px.line(daily_messages, x='date', y='messages', 
+                            title='Daily Message Volume')
+                fig.update_layout(
+                    plot_bgcolor='#262730',
+                    paper_bgcolor='#262730',
+                    font_color='#FAFAFA'
                 )
-                fig_timeline.update_traces(line_color='#00bcd4')
-                fig_timeline.update_layout(
-                    plot_bgcolor='#2d2d2d',
-                    paper_bgcolor='#2d2d2d',
-                    font_color='#e0e0e0',
-                    title_font_color='#e0e0e0',
-                    xaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d'),
-                    yaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d')
-                )
-                st.plotly_chart(fig_timeline, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True)
                 
-                # Activity Heatmap
-                df['hour'] = df['timestamp'].dt.hour
-                df['day'] = df['timestamp'].dt.day_name()
-                
-                activity_pivot = pd.pivot_table(
-                    df,
-                    values='message',
-                    index='day',
-                    columns='hour',
-                    aggfunc='count',
-                    fill_value=0
-                )
-                
-                days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                activity_pivot = activity_pivot.reindex(days_order)
-                
-                fig_heatmap = px.imshow(
-                    activity_pivot,
-                    title="Activity Patterns by Day and Hour",
-                    labels=dict(x="Hour of Day", y="Day of Week", color="Messages"),
-                    color_continuous_scale="Viridis"
-                )
-                fig_heatmap.update_layout(
-                    plot_bgcolor='#2d2d2d',
-                    paper_bgcolor='#2d2d2d',
-                    font_color='#e0e0e0',
-                    title_font_color='#e0e0e0'
-                )
-                st.plotly_chart(fig_heatmap, use_container_width=True)
-                
-                # Weekly Activity Pattern
-                df['week'] = df['timestamp'].dt.isocalendar().week
-                weekly_pattern = df.groupby(['week', 'day']).size().reset_index()
-                weekly_pattern.columns = ['week', 'day', 'messages']
-                
-                fig_weekly = px.line(
-                    weekly_pattern,
-                    x='week',
-                    y='messages',
-                    color='day',
-                    title="Weekly Activity Patterns",
-                    labels={'week': 'Week Number', 'messages': 'Messages', 'day': 'Day'}
-                )
-                fig_weekly.update_layout(
-                    plot_bgcolor='#2d2d2d',
-                    paper_bgcolor='#2d2d2d',
-                    font_color='#e0e0e0',
-                    title_font_color='#e0e0e0',
-                    xaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d'),
-                    yaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d')
-                )
-                st.plotly_chart(fig_weekly, use_container_width=True)
-            
-            with tab2:
-                # Engagement Insights
-                st.subheader("⭐ Chat Insights")
-                
+                # Peak Activity Times
+                st.subheader("Peak Activity Times")
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.markdown("""
-                        <div class="stat-card">
-                            <h3>Peak Activity Times</h3>
-                            <div style="text-align: left; padding: 1rem;">
-                    """, unsafe_allow_html=True)
-                    
+                    st.write("Most Active Hours:")
                     for hour, count in metrics['peak_hours'].items():
-                        st.write(f"• {hour:02d}:00 - {count:,} messages")
-                    
-                    st.markdown("</div></div>", unsafe_allow_html=True)
-                    
-                    st.markdown("""
-                        <div class="stat-card">
-                            <h3>Early Birds 🌅</h3>
-                            <div style="text-align: left; padding: 1rem;">
-                    """, unsafe_allow_html=True)
-                    
-                    for sender, count in metrics['morning_starters'].items():
-                        st.write(f"• {sender}: {count:,} morning messages")
-                    
-                    st.markdown("</div></div>", unsafe_allow_html=True)
+                        st.write(f"• {hour:02d}:00 - {count} messages")
                 
                 with col2:
-                    st.markdown("""
-                        <div class="stat-card">
-                            <h3>Busiest Days</h3>
-                            <div style="text-align: left; padding: 1rem;">
-                    """, unsafe_allow_html=True)
-                    
+                    st.write("Most Active Days:")
                     for day, count in metrics['peak_days'].items():
-                        st.write(f"• {day}: {count:,} messages")
-                    
-                    st.markdown("</div></div>", unsafe_allow_html=True)
-                    
-                    st.markdown("""
-                        <div class="stat-card">
-                            <h3>Night Owls 🦉</h3>
-                            <div style="text-align: left; padding: 1rem;">
-                    """, unsafe_allow_html=True)
-                    
-                    for sender, count in metrics['night_owls'].items():
-                        st.write(f"• {sender}: {count:,} late messages")
-                    
-                    st.markdown("</div></div>", unsafe_allow_html=True)
-            
-            with tab3:
+                        st.write(f"• {day} - {count} messages")
+                
+                # Early Birds vs Night Owls
+                st.subheader("Early Birds vs Night Owls")
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Emoji Analysis
-                    emoji_counts = Counter()
-                    for message in df['message']:
-                        emojis = ''.join(c for c in str(message) if c in emoji.EMOJI_DATA)
-                        emoji_counts.update(emojis)
-                    
-                    if emoji_counts:
-                        top_emojis = pd.DataFrame(
-                            emoji_counts.most_common(10),
-                            columns=['Emoji', 'Count']
-                        )
-                        
-                        fig_emoji = px.bar(
-                            top_emojis,
-                            x='Count',
-                            y='Emoji',
-                            orientation='h',
-                            title="Most Used Emojis",
-                            color='Count',
-                            color_continuous_scale='Viridis'
-                        )
-                        fig_emoji.update_layout(
-                            plot_bgcolor='#2d2d2d',
-                            paper_bgcolor='#2d2d2d',
-                            font_color='#e0e0e0',
-                            title_font_color='#e0e0e0',
-                            xaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d'),
-                            yaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d')
-                        )
-                        st.plotly_chart(fig_emoji, use_container_width=True)
-                    else:
-                        st.info("No emojis found in the chat")
+                    st.write("Early Birds (5 AM - 11 AM):")
+                    for sender, count in metrics['morning_starters'].items():
+                        st.write(f"• {sender}: {count} messages")
                 
                 with col2:
-                    # Language Distribution
-                    lang_dist = df['language'].value_counts()
-                    
-                    fig_lang = px.pie(
-                        values=lang_dist.values,
-                        names=lang_dist.index,
-                        title="Language Distribution",
-                        hole=0.4,
-                        color_discrete_sequence=px.colors.qualitative.Set3
-                    )
-                    fig_lang.update_layout(
-                        plot_bgcolor='#2d2d2d',
-                        paper_bgcolor='#2d2d2d',
-                        font_color='#e0e0e0',
-                        title_font_color='#e0e0e0'
-                    )
-                    st.plotly_chart(fig_lang, use_container_width=True)
-                    
-                    # Message Length Distribution
-                    fig_length = px.histogram(
-                        df,
-                        x='message_length',
-                        title="Message Length Distribution",
-                        nbins=50,
-                        color_discrete_sequence=['#00bcd4']
-                    )
-                    fig_length.update_layout(
-                        plot_bgcolor='#2d2d2d',
-                        paper_bgcolor='#2d2d2d',
-                        font_color='#e0e0e0',
-                        title_font_color='#e0e0e0',
-                        xaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d', title="Message Length (characters)"),
-                        yaxis=dict(gridcolor='#3d3d3d', linecolor='#3d3d3d', title="Number of Messages")
-                    )
-                    st.plotly_chart(fig_length, use_container_width=True)
-        
+                    st.write("Night Owls (10 PM - 5 AM):")
+                    for sender, count in metrics['night_owls'].items():
+                        st.write(f"• {sender}: {count} messages")
+                
+                # Message Length Distribution
+                st.subheader("Message Length Distribution")
+                fig = px.histogram(df, x='message_length', 
+                                 title='Distribution of Message Lengths',
+                                 nbins=50)
+                fig.update_layout(
+                    plot_bgcolor='#262730',
+                    paper_bgcolor='#262730',
+                    font_color='#FAFAFA'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Latest Messages
+                st.header("Latest Messages")
+                latest_msgs = get_latest_messages(df, n=5)
+                for _, msg in latest_msgs.iterrows():
+                    with st.container():
+                        st.markdown(f"""
+                        **{msg['sender']}** - _{format_time_ago(msg['timestamp'])}_  
+                        {msg['message']}
+                        """)
+                        st.markdown("---")
+                
+            else:
+                st.error("Could not parse the chat file. Please make sure it's a valid WhatsApp chat export.")
+                
         except Exception as e:
-            st.error(f"Error analyzing chat: {str(e)}")
-            
-    else:
-        st.info("👆 Upload your WhatsApp chat export file to begin analysis!")
-    
-    # Footer
-    st.markdown("---")
-    st.markdown("Powered by Advanced Analytics • Made with ❤️")
+            st.error(f"An error occurred while processing the file: {str(e)}")
+            st.error("Please make sure you've uploaded a valid WhatsApp chat export file.")
 
 if __name__ == "__main__":
     main()
