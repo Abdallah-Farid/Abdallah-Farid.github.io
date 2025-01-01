@@ -14,138 +14,12 @@ import numpy as np
 from collections import Counter
 import emoji
 import humanize
-from datetime import datetime
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
 
 from scripts.whatsapp_parser import parse_whatsapp_chat, get_latest_messages
-
-# Set page config
-st.set_page_config(
-    page_title="WhatsApp Insights",
-    page_icon="💬",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS
-st.markdown("""
-<style>
-    /* Main container */
-    .main {
-        background-color: #1a1a1a;
-        color: #e0e0e0;
-    }
-    
-    /* Cards */
-    .stat-card {
-        background-color: #2d2d2d;
-        padding: 1.5rem;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        text-align: center;
-        margin-bottom: 1rem;
-        border: 1px solid #3d3d3d;
-    }
-    
-    .stat-card h3 {
-        color: #00bcd4;
-        font-size: 2rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .stat-card p {
-        color: #b0b0b0;
-        font-size: 1rem;
-        margin: 0;
-    }
-    
-    /* Headers */
-    h1 {
-        color: #00bcd4;
-        font-weight: 600;
-        margin-bottom: 2rem;
-    }
-    
-    h2 {
-        color: #e0e0e0;
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-    }
-    
-    /* Latest messages */
-    .message-card {
-        background-color: #2d2d2d;
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 0.5rem;
-        border-left: 4px solid #00bcd4;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-    
-    .message-sender {
-        color: #00bcd4;
-        font-weight: 600;
-    }
-    
-    .message-time {
-        color: #b0b0b0;
-        font-size: 0.8rem;
-    }
-    
-    .message-content {
-        color: #e0e0e0;
-        margin-top: 0.5rem;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        margin-bottom: 1rem;
-        background-color: #1a1a1a;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        padding: 1rem 2rem;
-        background-color: #2d2d2d;
-        border-radius: 10px;
-        color: #e0e0e0;
-        border: 1px solid #3d3d3d;
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        background-color: #3d3d3d;
-        border-color: #00bcd4;
-    }
-    
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background-color: #00bcd4;
-        color: #1a1a1a;
-        border-color: #00bcd4;
-    }
-    
-    /* File uploader */
-    .stFileUploader {
-        background-color: #2d2d2d;
-        padding: 1rem;
-        border-radius: 10px;
-        border: 2px dashed #3d3d3d;
-    }
-    
-    .stFileUploader:hover {
-        border-color: #00bcd4;
-    }
-    
-    /* Info boxes */
-    .stAlert {
-        background-color: #2d2d2d;
-        color: #e0e0e0;
-        border: 1px solid #3d3d3d;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 def format_time_ago(timestamp):
     """Format timestamp as time ago (e.g., '2 hours ago')."""
@@ -186,7 +60,30 @@ def calculate_conversation_metrics(df):
     }
 
 def main():
-    st.title("💬 WhatsApp Chat Analytics")
+    st.set_page_config(
+        page_title="WhatsApp Chat Analyzer",
+        page_icon="💬",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    st.markdown("""
+        <style>
+        .main {
+            background-color: #0E1117;
+            color: #FAFAFA;
+        }
+        .stButton>button {
+            background-color: #FF4B4B;
+            color: white;
+        }
+        .uploadedFile {
+            background-color: #262730;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+    st.title("WhatsApp Chat Analyzer 💬")
     
     uploaded_file = st.file_uploader("Upload your WhatsApp chat export (.txt file)", type="txt")
     
